@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Leaflet Base + WMS + Video Overlay (No SRI)</title>
+
+    <!-- 1) Leaflet CSS (NO integrity attribute) -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <style>
+      /* Basic page styling */
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+      }
+      #controls {
+        margin: 10px;
+      }
+      #controls input,
+      #controls button,
+      #controls label {
+        margin: 5px;
+      }
+      #map {
+        width: 100%;
+        height: 80vh; /* 80% of the viewport height */
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 2) UI Controls / Form -->
+    <div id="controls">
+      <h3>Generate Video</h3>
+      <label for="bbox">BBOX (minX,minY,maxX,maxY):</label>
+      <input type="text" id="bbox" value="68.1,6.4,97.4,35.7" size="30" />
+      <br/>
+
+      <label for="startTime">Start Time (HHMM):</label>
+      <input type="text" id="startTime" value="0045" size="4" />
+
+      <label for="endTime">End Time (HHMM):</label>
+      <input type="text" id="endTime" value="2115" size="4" />
+
+      <label for="interval">Interval (minutes):</label>
+      <input type="number" id="interval" value="30" size="3" />
+
+      <button id="generateVideoBtn">Generate Video</button>
+    </div>
+
+    <!-- 3) The Map Container -->
+    <div id="map"></div>
+
+    <!-- 4) Leaflet JS (NO integrity attribute) -->
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    ></script>
+
+    <!-- 5) Your Custom Script -->
+    <script>
+      /************************************************************************
+       * A) Initialize the Map
+       ************************************************************************/
+      const map = L.map("map").setView([20, 80], 4);
+      //const map = L.map("map");
+      // B) Base layer: OpenStreetMap
+      const baseLayer = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {
+          maxZoom: 19,
+          attribution: "&copy; OpenStreetMap contributors",
+        }
+      ).addTo(map);
+
+      // C) (Optional) WMS Layer - Replace with your GeoServer if needed
+      const wmsLayer = L.tileLayer.wms(
+        "http://localhost:8080/geoserver/MOSDAC_TIR_1/wms",
+        {
+          layers: "MOSDAC_TIR_1:3RIMG_01DEC2024_2345_L1B_STD_V01R00_IMG_TIR1",
+          format: "image/png",
+          transparent: true,
+          opacity: 0.7,
+        }
+      ).addTo(map);
+
+      /************************************************************************
+       * D) "Generate Video" Button Logic
+       ************************************************************************/
+      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
+        try {
+          // 1) Gather inputs
+          const bboxInput = document.getElementById("bbox").value;
+          const startTime = document.getElementById("startTime").value;
+          const endTime = document.getElementById("endTime").value;
+          const interval = document.getElementById("interval").value;
+
+          // 2) Construct FastAPI URL + query params
+          //    Change if your endpoint differs
+          const endpointUrl = new URL("http://localhost:8000/generate_video/");
+          endpointUrl.searchParams.append("geoserver_url", "http://localhost:8080/geoserver/MOSDAC_TIR_1/wms");
+          endpointUrl.searchParams.append("bbox", bboxInput);
+          endpointUrl.searchParams.append("start_time", startTime);
+          endpointUrl.searchParams.append("end_time", endTime);
+          endpointUrl.searchParams.append("interval", interval);
+          endpointUrl.searchParams.append("width", "128");
+          endpointUrl.searchParams.append("height", "128");
+          endpointUrl.searchParams.append("frame_rate", "10");
+
+          // 3) Fetch JSON from FastAPI (expecting { "video_url": "..." })
+          const response = await fetch(endpointUrl);
+          const data = await response.json();
+          if (!data.video_url) {
+            alert("No video URL returned by the server.");
+            return;
+          }
+
+          // 4) Convert BBOX string -> Leaflet LatLngBounds
+          const bounds = parseBboxToBounds(bboxInput);
+
+          // 5) Create a video overlay
+          //    We'll autoplay, loop, and mute so it auto-plays in most browsers
+          const videoOverlay = L.videoOverlay(data.video_url, bounds, {
+            autoplay: true,
+            loop: false,
+            muted: true,
+            opacity: 0.5,
+          }).addTo(map);
+  
+
+          // 6) Fit map to bounding box
+        //   map.fitBounds(bounds);
+        map.flyToBounds(bounds, { maxZoom: 8 });
+
+          console.log(bounds)
+
+        } catch (err) {
+          console.error("Error generating video:", err);
+          alert("Failed to generate video. See console for details.");
+        }
+      });
+
+      /************************************************************************
+       * E) Helper Function: parseBboxToBounds
+       ************************************************************************/
+      function parseBboxToBounds(bboxString) {
+        // Example: "68.1,6.4,97.4,35.7"
+        const [minX, minY, maxX, maxY] = bboxString.split(",").map(parseFloat);
+        // BBOX is [west, south, east, north], Leaflet wants [[south, west], [north, east]]
+        return [[minY, minX], [maxY, maxX]];
+      }
+    </script>
+  </body>
+</html>

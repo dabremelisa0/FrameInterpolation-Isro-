@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoServer WMS with OpenLayers</title>
+  <link rel="stylesheet" href="https://unpkg.com/ol@v7.4.0/dist/ol.css" type="text/css">
+  <script src="https://unpkg.com/ol@v7.4.0/dist/ol.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ol/proj.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #map { width: 100%; height: 500px; }
+    form { margin-bottom: 20px; }
+    input { margin: 5px; }
+  </style>
+</head>
+<body>
+  <h1>GeoServer WMS Layer with OpenLayers - Asia</h1>
+
+  <!-- Form for entering coordinates -->
+  <form id="bbox-form">
+    <label for="minX">Min X (Longitude):</label>
+    <input type="text" id="minX" placeholder="Min X" value="-3473242.733735" required>
+    
+    <label for="minY">Min Y (Latitude):</label>
+    <input type="text" id="minY" placeholder="Min Y" value="-1058893.687497" required>
+    
+    <label for="maxX">Max X (Longitude):</label>
+    <input type="text" id="maxX" placeholder="Max X" value="3473242.733735" required>
+    
+    <label for="maxY">Max Y (Latitude):</label>
+    <input type="text" id="maxY" placeholder="Max Y" value="5401854.420193" required>
+    
+    <button type="submit">Render Map</button>
+  </form>
+
+  <div id="map"></div>
+
+  <script type="text/javascript">
+    // Register custom EPSG:999991 projection using proj4
+    proj4.defs("EPSG:999991", "+proj=merc +lat_ts=17.75 +lon_0=77.25 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs");
+    ol.proj.proj4.register(proj4);
+
+    // Default BBOX for Asia
+    var bbox = [-3473242.733735, -1058893.687497, 3473242.733735, 5401854.420193];
+
+    // Function to initialize the map
+    var map;  // Declare map variable globally
+
+    function initializeMap(bbox) {
+      // Remove the existing map if it exists
+      if (map) {
+        map.setTarget(null); // Properly clear the previous map
+      }
+
+      // Create base layer (OpenStreetMap)
+      var baseLayer = new ol.layer.Tile({
+        source: new ol.source.OSM()
+      });
+
+      // Create overlay layer (TIR)
+      var tirLayer = new ol.layer.Image({
+        source: new ol.source.ImageWMS({
+          url: 'http://localhost:8080/geoserver/Sample_Visible/wms', // GeoServer WMS URL
+          params: {
+            'LAYERS': 'Sample_Visible:3RIMG_01NOV2024_0015_L1C_ASIA_MER_V01R00_IMG_TIR1', // WMS layer name
+            'SRS': 'EPSG:999991', // Custom SRS
+            'STYLES': '', // Use default styles
+            'FORMAT': 'image/png'
+          },
+          ratio: 1,
+          serverType: 'geoserver'
+        }),
+        opacity: 0.5 // Set TIR layer opacity to 50%
+      });
+
+      // Create a new map instance
+      map = new ol.Map({
+        target: 'map',
+        layers: [baseLayer, tirLayer], // Add both base and TIR layers
+        view: new ol.View({
+          projection: 'EPSG:999991', // Use custom projection
+          center: [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], // Center the map on the BBOX
+          zoom: 3.5 // Adjust zoom for Asia BBOX
+        })
+      });
+    }
+
+    // Handle form submission
+    document.getElementById('bbox-form').addEventListener('submit', function(event) {
+      event.preventDefault();
+
+      // Get values from input fields
+      var minX = parseFloat(document.getElementById('minX').value);
+      var minY = parseFloat(document.getElementById('minY').value);
+      var maxX = parseFloat(document.getElementById('maxX').value);
+      var maxY = parseFloat(document.getElementById('maxY').value);
+
+      // Validate inputs
+      if (isNaN(minX) || isNaN(minY) || isNaN(maxX) || isNaN(maxY)) {
+        alert("Please enter valid coordinates.");
+        return;
+      }
+
+      // Set new BBOX and render the map
+      bbox = [minX, minY, maxX, maxY];
+      initializeMap(bbox);
+    });
+
+    // Initialize map with the default BBOX (Asia's BBOX)
+    initializeMap(bbox);
+  </script>
+</body>
+</html>

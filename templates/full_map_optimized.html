@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Optimized GeoServer WMS with OpenLayers</title>
+  <link rel="stylesheet" href="https://unpkg.com/ol@v7.4.0/dist/ol.css" type="text/css">
+  <script src="https://unpkg.com/ol@v7.4.0/dist/ol.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #map { width: 100%; height: 500px; margin-top: 20px; }
+    form { margin-bottom: 20px; }
+    input, button { margin: 5px; padding: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Optimized GeoServer WMS Layer with OpenLayers</h1>
+
+  <form id="bbox-form">
+    <label for="minX">Min X (Longitude):</label>
+    <input type="text" id="minX" placeholder="Min X" value="68.1" required>
+
+    <label for="minY">Min Y (Latitude):</label>
+    <input type="text" id="minY" placeholder="Min Y" value="6.4" required>
+
+    <label for="maxX">Max X (Longitude):</label>
+    <input type="text" id="maxX" placeholder="Max X" value="97.4" required>
+
+    <label for="maxY">Max Y (Latitude):</label>
+    <input type="text" id="maxY" placeholder="Max Y" value="35.7" required>
+
+    <button type="submit">Render Map</button>
+  </form>
+
+  <div id="map"></div>
+
+  <script type="text/javascript">
+    // Initial BBOX covering India and surrounding regions
+    var bbox = [65.0, 5.0, 98.0, 37.0];
+
+    // Declare map and layers globally
+    var map;
+    var baseLayer;
+    var insatLayer;
+
+    function initializeMap() {
+      // Base tile layer (ESRI World Imagery)
+      baseLayer = new ol.layer.Tile({
+        source: new ol.source.XYZ({
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          // attributions: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
+        })
+      });
+
+      // INSAT WMS tiled layer
+      insatLayer = new ol.layer.Tile({
+        source: new ol.source.TileWMS({
+          url: 'http://localhost:8080/geoserver/Sample_Visible/wms',
+          params: {
+            'LAYERS': 'Sample_Visible:3RIMG_14OCT2024_0015_L1B_STD_V01R00_IMG_TIR1',
+            'FORMAT': 'image/png',
+            'TRANSPARENT': true,
+            'TILED': true
+          },
+          serverType: 'geoserver',
+          transition: 0,
+        }),
+        opacity: 0.6 // Adjust opacity as needed
+      });
+
+      // Create map instance
+      map = new ol.Map({
+        target: 'map',
+        layers: [baseLayer, insatLayer],
+        view: new ol.View({
+          projection: 'EPSG:4326', // Match projection with GeoServer
+          center: ol.extent.getCenter(bbox),
+          zoom: 5,
+          //extent: bbox
+        })
+      });
+    }
+
+    // Handle form submission to update BBOX
+    document.getElementById('bbox-form').addEventListener('submit', function(event) {
+      event.preventDefault();
+
+      // Get values from input fields
+      var minX = parseFloat(document.getElementById('minX').value);
+      var minY = parseFloat(document.getElementById('minY').value);
+      var maxX = parseFloat(document.getElementById('maxX').value);
+      var maxY = parseFloat(document.getElementById('maxY').value);
+
+      // Validate inputs
+      if (isNaN(minX) || isNaN(minY) || isNaN(maxX) || isNaN(maxY)) {
+        alert("Please enter valid coordinates.");
+        return;
+      }
+
+      // Update BBOX
+      bbox = [minX, minY, maxX, maxY];
+
+      // Update the view to fit the new BBOX
+      var view = map.getView();
+      view.fit(bbox, {
+        size: map.getSize(),
+        constrainResolution: false
+      });
+    });
+
+    // Initialize map with default BBOX
+    initializeMap();
+  </script>
+</body>
+</html>

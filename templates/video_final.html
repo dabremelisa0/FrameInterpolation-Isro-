@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Leaflet Base + WMS + Video Overlay + Drawing Controls</title>
+
+    <!-- Leaflet CSS -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <!-- Leaflet Draw CSS -->
+    <link 
+      rel="stylesheet" 
+      href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css"
+    />
+
+    <style>
+      /* Basic page styling */
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+      }
+      #controls {
+        margin: 10px;
+        background: #f5f5f5;
+        padding: 15px;
+        border-radius: 8px;
+      }
+      #controls input,
+      #controls button,
+      #controls label {
+        margin: 5px;
+      }
+      .control-group {
+        margin: 10px 0;
+      }
+      .number-input {
+        width: 60px;
+      }
+      #map {
+        width: 100%;
+        height: 80vh;
+      }
+      
+      /* Video Control Styles */
+      #videoControls {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        z-index: 1000;
+        display: none;
+      }
+      
+      #timeSlider {
+        width: 300px;
+        margin: 0 10px;
+      }
+      
+      .control-button {
+        padding: 5px 10px;
+        margin: 0 5px;
+        cursor: pointer;
+        background: #4a90e2;
+        color: white;
+        border: none;
+        border-radius: 4px;
+      }
+      
+      .control-button.active {
+        background: #2c3e50;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- UI Controls / Form -->
+    <div id="controls">
+      <h3>Generate Video</h3>
+      
+      <!-- Spatial Parameters -->
+      <div class="control-group">
+        <label for="bbox">BBOX (minX,minY,maxX,maxY):</label>
+        <input type="text" id="bbox" value="68.1,6.4,97.4,35.7" size="30" />
+      </div>
+      
+      <!-- Temporal Parameters -->
+      <div class="control-group">
+        <label for="startTime">Start Time (HHMM):</label>
+        <input type="text" id="startTime" value="0045" size="4" />
+        <label for="endTime">End Time (HHMM):</label>
+        <input type="text" id="endTime" value="2115" size="4" />
+        <label for="interval">Interval (minutes):</label>
+        <input type="number" id="interval" value="30" size="3" class="number-input" />
+      </div>
+      
+      <!-- Video Parameters -->
+      <div class="control-group">
+        <label for="width">Width (px):</label>
+        <input type="number" id="width" value="128" class="number-input" />
+        <label for="height">Height (px):</label>
+        <input type="number" id="height" value="128" class="number-input" />
+        <label for="frameRate">Frame Rate (fps):</label>
+        <input type="number" id="frameRate" value="10" min="1" max="60" class="number-input" />
+      </div>
+      
+      
+      <div class="control-group">
+        <button id="generateVideoBtn">Generate Video</button>
+        <span id="bboxDisplay" style="margin-left: 10px; font-weight: bold; color: #333;">
+        </span>
+      </div>
+      
+    </div>
+
+    <!-- Video Controls -->
+    <div id="videoControls">
+      <button id="autoModeBtn" class="control-button">Auto</button>
+      <button id="manualModeBtn" class="control-button">Manual</button>
+      <input type="range" id="timeSlider" min="0" max="100" value="0" step="0.1">
+      <span id="timeDisplay">00:00</span>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Leaflet Draw JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    <!-- Custom Script -->
+    <script>
+      // Initialize the Map
+      const map = L.map("map").setView([20, 80], 4);
+      let currentVideoOverlay = null;
+      let isAutoMode = true;
+      let autoPlayInterval = null;
+
+      // Base layer: ArcGIS World Imagery
+      const baseLayer = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        {
+          maxZoom: 19,
+         // attribution: "&copy; OpenStreetMap contributors",
+        }
+      ).addTo(map);
+
+      // WMS Layer
+      const wmsLayer = L.tileLayer.wms(
+        "http://localhost:8080/geoserver/MOSDAC_TIR_1/wms",
+        {
+          layers: "MOSDAC_TIR_1:3RIMG_01DEC2024_2345_L1B_STD_V01R00_IMG_TIR1",
+          format: "image/png",
+          transparent: true,
+          opacity: 0.7,
+        }
+      ).addTo(map);
+
+      // Initialize Drawing Controls
+      const drawnItems = new L.FeatureGroup();
+      map.addLayer(drawnItems);
+
+      const drawControl = new L.Control.Draw({
+        draw: {
+          polyline: false,
+          polygon: false,
+          circle: false,
+          circlemarker: false,
+          marker: false,
+          rectangle: {
+            shapeOptions: {
+              color: '#FF0000',
+              weight: 2
+            }
+          }
+        },
+        edit: {
+          featureGroup: drawnItems,
+          remove: true
+        }
+      });
+      map.addControl(drawControl);
+
+      // Video Control Functions
+      function initializeVideoControls(video) {
+        const videoControls = document.getElementById('videoControls');
+        const timeSlider = document.getElementById('timeSlider');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const autoModeBtn = document.getElementById('autoModeBtn');
+        const manualModeBtn = document.getElementById('manualModeBtn');
+
+        videoControls.style.display = 'block';
+        
+        // Update slider max value based on video duration
+        video.addEventListener('loadedmetadata', () => {
+          timeSlider.max = video.duration;
+        });
+
+        // Time update handler
+        video.addEventListener('timeupdate', () => {
+          if (!timeSlider.dragging) {
+            timeSlider.value = video.currentTime;
+            updateTimeDisplay(video.currentTime);
+          }
+        });
+
+        // Slider input handler
+        timeSlider.addEventListener('input', () => {
+          if (!isAutoMode) {
+            video.currentTime = timeSlider.value;
+            updateTimeDisplay(video.currentTime);
+          }
+        });
+
+        // Mode toggle handlers
+        autoModeBtn.addEventListener('click', () => {
+          isAutoMode = true;
+          autoModeBtn.classList.add('active');
+          manualModeBtn.classList.remove('active');
+          video.play();
+        });
+
+        manualModeBtn.addEventListener('click', () => {
+          isAutoMode = false;
+          manualModeBtn.classList.add('active');
+          autoModeBtn.classList.remove('active');
+          video.pause();
+        });
+
+        // Initial state
+        autoModeBtn.classList.add('active');
+      }
+
+      function updateTimeDisplay(seconds) {
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = Math.floor(seconds % 60);
+        document.getElementById('timeDisplay').textContent = 
+          `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+      }
+
+      // Function to update the displayed BBOX coordinates
+function updateBboxDisplay(bbox) {
+  const bboxDisplay = document.getElementById('bboxDisplay');
+  bboxDisplay.textContent = `Selected BBOX: ${bbox}`;
+}
+
+// Update BBOX display when input changes
+document.getElementById('bbox').addEventListener('change', function () {
+  const bbox = this.value;
+  updateBboxDisplay(bbox);
+});
+
+
+      // Drawing Event Handlers
+      map.on('draw:created', function(e) {
+        const layer = e.layer;
+        drawnItems.addLayer(layer);
+        
+        const bounds = layer.getBounds();
+        const bboxString = `${bounds.getWest().toFixed(6)},${bounds.getSouth().toFixed(6)},${bounds.getEast().toFixed(6)},${bounds.getNorth().toFixed(6)}`;
+        document.getElementById('bbox').value = bboxString;
+        updateBboxDisplay(bboxString);
+        let opacity = 1;
+        const fadeInterval = setInterval(() => {
+            opacity -= 0.1;
+            if (opacity <= 0) {
+                clearInterval(fadeInterval);
+                drawnItems.clearLayers();
+            } else {
+                layer.setStyle({ opacity: opacity, fillOpacity: opacity * 0.2 });
+            }
+        }, 50);
+      });
+
+      map.on('draw:deleted', function(e) {
+        document.getElementById('bbox').value = '';
+      });
+
+      // Generate Video Button Logic
+      document.getElementById("generateVideoBtn").addEventListener("click", async () => {
+        try {
+          const bboxInput = document.getElementById("bbox").value;
+          const startTime = document.getElementById("startTime").value;
+          const endTime = document.getElementById("endTime").value;
+          const interval = document.getElementById("interval").value;
+          const width = document.getElementById("width").value;
+          const height = document.getElementById("height").value;
+          const frameRate = document.getElementById("frameRate").value;
+
+          const endpointUrl = new URL("http://localhost:8000/generate_video/");
+          endpointUrl.searchParams.append("geoserver_url", "http://localhost:8080/geoserver/MOSDAC_TIR_1/wms");
+          endpointUrl.searchParams.append("bbox", bboxInput);
+          endpointUrl.searchParams.append("start_time", startTime);
+          endpointUrl.searchParams.append("end_time", endTime);
+          endpointUrl.searchParams.append("interval", interval);
+          endpointUrl.searchParams.append("width", width);
+          endpointUrl.searchParams.append("height", height);
+          endpointUrl.searchParams.append("frame_rate", frameRate);
+
+          const response = await fetch(endpointUrl);
+          const data = await response.json();
+
+          if (!data.video_url) {
+            alert("No video URL returned by the server.");
+            return;
+          }
+
+          // Remove existing video overlay if present
+          if (currentVideoOverlay) {
+            map.removeLayer(currentVideoOverlay);
+          }
+
+          // Create video overlay
+          const bounds = parseBboxToBounds(bboxInput);
+          currentVideoOverlay = L.videoOverlay(data.video_url, bounds, {
+            autoplay: true,
+            loop: true,
+            muted: true,
+            opacity: 0.5,
+          }).addTo(map);
+
+          // Initialize video controls
+          currentVideoOverlay.on('load', function(e) {
+            const video = e.target.getElement();
+            initializeVideoControls(video);
+          });
+
+          // Fit map to bounds
+          map.flyToBounds(bounds, { maxZoom: 8 });
+
+        } catch (err) {
+          console.error("Error generating video:", err);
+          alert("Failed to generate video. See console for details.");
+        }
+      });
+
+      // Helper Function: Parse BBOX string to bounds
+      function parseBboxToBounds(bboxString) {
+        const [minX, minY, maxX, maxY] = bboxString.split(",").map(parseFloat);
+        return [[minY, minX], [maxY, maxX]];
+      }
+    </script>
+  </body>
+</html>

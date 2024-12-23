@@ -1,0 +1,66 @@
+# Byte-compiled files
+*.py[cod]
+__pycache__/
+*.so
+
+# Logs and cache files
+*.log
+*.out
+*.err
+*.swp
+*.bak
+*.tmp
+*.orig
+*.lock
+*.cache
+*.coverage
+
+# Virtual environments
+env/
+venv/
+ENV/
+.venv/
+env.bak/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test coverage
+htmlcov/
+.tox/
+.cache/
+.coverage
+coverage.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+
+# MacOS and Linux files
+.DS_Store
+*.appledouble
+*.lsotrack
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Film Model folder (if needed for your setup)
+film_model/
